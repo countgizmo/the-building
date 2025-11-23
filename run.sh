@@ -1,0 +1,2 @@
+./build.sh && ./the-building
+
