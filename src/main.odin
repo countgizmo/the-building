@@ -24,14 +24,62 @@ calculate_background :: proc(hours: f32) -> rl.Color {
 }
 
 draw_time :: proc(hours: f32) {
-  hours_text := fmt.ctprintf("%v", hours)
-  hours_position := rl.Vector2 { SCREEN_WIDTH - 100, SCREEN_HEIGHT - 100}
+  hours_text := fmt.ctprintf("Hour: %d", cast(int)hours)
+  hours_position := rl.Vector2 { SCREEN_WIDTH - 65, 25}
   rl.DrawTextEx(rl.GetFontDefault(), hours_text, hours_position, 14, 1, rl.WHITE)
+}
 
-  t:= hours / 24.0
-  t_text := fmt.ctprintf("%v", t)
-  t_position := rl.Vector2 { hours_position.x, hours_position.y - 200}
-  rl.DrawTextEx(rl.GetFontDefault(), t_text, t_position, 14, 1, rl.WHITE)
+BUILDING_HEIGHT :: 600
+BUILDING_WIDTH :: 200
+BUILDING_COLOR :: rl.Color{180, 175, 165, 255}
+
+FLOORS :: 15
+ROOMS :: 5
+ROOM_PAD :: 10
+ROOM_WIDTH :: 25
+ROOM_HEIGHT :: 30
+
+LIGHT_ON_1 :: rl.Color{240, 210, 160, 255}  // gentle warm light
+LIGHT_ON_2 :: rl.Color{255, 220, 150, 255}  // warm yellow glow
+LIGHT_ON_3 :: rl.Color{255, 200, 120, 255}  // warmer, more orange
+
+draw_building :: proc(background: rl.Color) {
+  building_rect := rl.Rectangle {
+    x = SCREEN_WIDTH / 4,
+    y = SCREEN_HEIGHT - BUILDING_HEIGHT,
+    width = BUILDING_WIDTH,
+    height = BUILDING_HEIGHT,
+  }
+  rl.DrawRectangleRec(building_rect, BUILDING_COLOR)
+
+  room_color := rl.ColorBrightness(background, -0.2)
+
+  // Calculate total grid size to center it
+  grid_width := cast(f32)(ROOMS * ROOM_WIDTH + (ROOMS - 1) * ROOM_PAD)
+  grid_height := cast(f32)(FLOORS * ROOM_HEIGHT + (FLOORS - 1) * ROOM_PAD)
+  start_x := building_rect.x + (BUILDING_WIDTH - grid_width) / 2
+  start_y := building_rect.y + (BUILDING_HEIGHT - grid_height) / 2
+
+  for col := 0; col < ROOMS; col += 1 {
+     for row := 0; row < FLOORS; row += 1 {
+      room_rect := rl.Rectangle {
+        x = start_x + cast(f32)(col * (ROOM_WIDTH + ROOM_PAD)),
+        y = start_y + cast(f32)(row * (ROOM_HEIGHT + ROOM_PAD)),
+        width = ROOM_WIDTH,
+        height = ROOM_HEIGHT,
+      }
+
+      if col == 1 && row == 3 {
+        rl.DrawRectangleRec(room_rect, LIGHT_ON_1)
+      } else if col == 4 && row == 5 {
+        rl.DrawRectangleRec(room_rect, LIGHT_ON_2)
+      } else if col == 1 && row == 11 {
+        rl.DrawRectangleRec(room_rect, LIGHT_ON_2)
+      } else {
+        rl.DrawRectangleRec(room_rect, room_color)
+      }
+     }
+  }
 }
 
 main :: proc() {
@@ -41,7 +89,7 @@ main :: proc() {
   })
 
   state: State
-  state.time_scale = 24 * 60 // 24 hours every 2 minutes
+  state.time_scale = 24 * 240 // 24 hours every
 
   rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "The Building")
   defer rl.CloseWindow()
@@ -60,6 +108,7 @@ main :: proc() {
     rl.ClearBackground(background)
 
     draw_time(hours)
+    draw_building(background)
 
     rl.EndDrawing()
   }
