@@ -14,7 +14,12 @@ SCREEN_HEIGHT :: 800
 
 State :: struct {
   sim_time: f32,
-  time_scale: f32
+  time_scale: f32,
+}
+
+Room :: struct {
+  number: uint,
+  light_on: bool,
 }
 
 calculate_background :: proc(hours: f32) -> rl.Color {
@@ -43,7 +48,7 @@ LIGHT_ON_1 :: rl.Color{240, 210, 160, 255}  // gentle warm light
 LIGHT_ON_2 :: rl.Color{255, 220, 150, 255}  // warm yellow glow
 LIGHT_ON_3 :: rl.Color{255, 200, 120, 255}  // warmer, more orange
 
-draw_building :: proc(background: rl.Color) {
+draw_building :: proc(background: rl.Color, rooms: [ROOMS * FLOORS]Room) {
   building_rect := rl.Rectangle {
     x = SCREEN_WIDTH / 4,
     y = SCREEN_HEIGHT - BUILDING_HEIGHT,
@@ -69,12 +74,8 @@ draw_building :: proc(background: rl.Color) {
         height = ROOM_HEIGHT,
       }
 
-      if col == 1 && row == 3 {
+      if rooms[col*row].light_on {
         rl.DrawRectangleRec(room_rect, LIGHT_ON_1)
-      } else if col == 4 && row == 5 {
-        rl.DrawRectangleRec(room_rect, LIGHT_ON_2)
-      } else if col == 1 && row == 11 {
-        rl.DrawRectangleRec(room_rect, LIGHT_ON_2)
       } else {
         rl.DrawRectangleRec(room_rect, room_color)
       }
@@ -95,6 +96,12 @@ main :: proc() {
   defer rl.CloseWindow()
 
 
+  // Initialize rooms
+  rooms := [ROOMS * FLOORS]Room{}
+  for i in 0..<len(rooms) {
+    rooms[i] = Room { number = cast(uint)i+1, light_on = false}
+  }
+
   rl.SetTargetFPS(30)
 
   for !rl.WindowShouldClose() {
@@ -108,7 +115,7 @@ main :: proc() {
     rl.ClearBackground(background)
 
     draw_time(hours)
-    draw_building(background)
+    draw_building(background, rooms)
 
     rl.EndDrawing()
   }
