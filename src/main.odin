@@ -15,17 +15,37 @@ SCREEN_HEIGHT :: 800
 State :: struct {
   sim_time: f32,
   time_scale: f32,
+  hours: f32,
+  brightness: f32,
 }
 
 Room :: struct {
-  number: uint,
   light_on: bool,
 }
 
-calculate_background :: proc(hours: f32) -> rl.Color {
-    t := hours / 24.0
+Dweller :: struct {
+  darkness_threshold: f32,
+  room_number: uint,
+}
+
+calculate_background :: proc(state: ^State) -> rl.Color {
+    t := state.hours / 24.0
     value: f32 = 0.575 + 0.375 * math.cos((t - 0.5) * 2 * math.PI)
     return rl.ColorFromHSV(210.0, 0.3, value)
+}
+
+
+SUNRISE :: 6.0
+NOON    :: 12.0
+SUNSET  :: 20.0
+
+MORNING_DURATION :: NOON - SUNRISE      // 6 hours
+EVENING_DURATION :: SUNSET - NOON       // 8 hours
+
+get_brightness :: proc(hour: f32) -> f32 {
+    if hour < SUNRISE || hour >= SUNSET do return 0.0
+    if hour < NOON do return (hour - SUNRISE) / MORNING_DURATION
+    return (SUNSET - hour) / EVENING_DURATION
 }
 
 draw_time :: proc(hours: f32) {
@@ -33,6 +53,13 @@ draw_time :: proc(hours: f32) {
   hours_position := rl.Vector2 { SCREEN_WIDTH - 65, 25}
   rl.DrawTextEx(rl.GetFontDefault(), hours_text, hours_position, 14, 1, rl.WHITE)
 }
+
+draw_brightness :: proc(brightness: f32) {
+  hours_text := fmt.ctprintf("Brightness: %v", brightness)
+  hours_position := rl.Vector2 { SCREEN_WIDTH - 115, 45}
+  rl.DrawTextEx(rl.GetFontDefault(), hours_text, hours_position, 14, 1, rl.WHITE)
+}
+
 
 BUILDING_HEIGHT :: 600
 BUILDING_WIDTH :: 200
@@ -48,7 +75,7 @@ LIGHT_ON_1 :: rl.Color{240, 210, 160, 255}  // gentle warm light
 LIGHT_ON_2 :: rl.Color{255, 220, 150, 255}  // warm yellow glow
 LIGHT_ON_3 :: rl.Color{255, 200, 120, 255}  // warmer, more orange
 
-draw_building :: proc(background: rl.Color, rooms: [ROOMS * FLOORS]Room) {
+draw_building :: proc(background: rl.Color, rooms: []Room) {
   building_rect := rl.Rectangle {
     x = SCREEN_WIDTH / 4,
     y = SCREEN_HEIGHT - BUILDING_HEIGHT,
@@ -74,7 +101,8 @@ draw_building :: proc(background: rl.Color, rooms: [ROOMS * FLOORS]Room) {
         height = ROOM_HEIGHT,
       }
 
-      if rooms[col*row].light_on {
+      index := row * ROOMS + col
+      if rooms[index].light_on {
         rl.DrawRectangleRec(room_rect, LIGHT_ON_1)
       } else {
         rl.DrawRectangleRec(room_rect, room_color)
@@ -83,7 +111,30 @@ draw_building :: proc(background: rl.Color, rooms: [ROOMS * FLOORS]Room) {
   }
 }
 
+draw :: proc(state: ^State, rooms: []Room) {
+    background := calculate_background(state)
+    rl.ClearBackground(background)
+    draw_time(state.hours)
+    draw_brightness(state.brightness)
+    draw_building(background, rooms)
+}
+
+update :: proc(state: ^State, rooms: []Room, dwellers: []Dweller) {
+  sim_time_scaled := state.sim_time * state.time_scale
+  state.hours = math.mod_f32((sim_time_scaled / 3600), 24.0)
+  state.brightness = get_brightness(state.hours)
+
+  for dweller in dwellers {
+    if state.brightness < dweller.darkness_threshold {
+      rooms[dweller.room_number-1].light_on = true
+    } else {
+      rooms[dweller.room_number-1].light_on = false
+    }
+  }
+}
+
 main :: proc() {
+  context.logger = log.create_console_logger()
 
   rl.SetConfigFlags({
     .WINDOW_HIGHDPI,
@@ -99,7 +150,13 @@ main :: proc() {
   // Initialize rooms
   rooms := [ROOMS * FLOORS]Room{}
   for i in 0..<len(rooms) {
-    rooms[i] = Room { number = cast(uint)i+1, light_on = false}
+    rooms[i] = Room { light_on = false}
+  }
+
+  // Initialize dwellers
+  dwellers := [?]Dweller{
+    Dweller { darkness_threshold = 0.25, room_number = 1 },
+    Dweller { darkness_threshold = 0.12, room_number = 15 },
   }
 
   rl.SetTargetFPS(30)
@@ -108,14 +165,8 @@ main :: proc() {
     state.sim_time = state.sim_time + rl.GetFrameTime()
     rl.BeginDrawing()
 
-    sim_time_scaled := state.sim_time * state.time_scale
-    hours := math.mod_f32((sim_time_scaled / 3600), 24.0)
-
-    background := calculate_background(hours)
-    rl.ClearBackground(background)
-
-    draw_time(hours)
-    draw_building(background, rooms)
+    update(&state, rooms[:], dwellers[:])
+    draw(&state, rooms[:])
 
     rl.EndDrawing()
   }
