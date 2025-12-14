@@ -1,6 +1,7 @@
 package main
 
 import "core:math"
+import "core:math/rand"
 import "core:fmt"
 import "core:time"
 import "core:log"
@@ -17,15 +18,30 @@ State :: struct {
   time_scale: f32,
   hours: f32,
   brightness: f32,
+  debug: bool,
+  speed: f32, //hours per second
 }
 
 Room :: struct {
   light_on: bool,
+  tv_on: bool,
+
 }
 
 Dweller :: struct {
   darkness_threshold: f32,
   room_number: uint,
+  has_tv: bool,
+
+  //TV
+  tv_on_hour: f32,
+  tv_off_hour: f32,
+}
+
+tv_colors := []rl.Color{
+    {120, 140, 200, 255},  // cool blue (night scene)
+    {150, 170, 220, 255},  // lighter blue
+    {200, 200, 220, 255},  // blue-white (bright scene)
 }
 
 calculate_background :: proc(state: ^State) -> rl.Color {
@@ -48,20 +64,22 @@ get_brightness :: proc(hour: f32) -> f32 {
     return (SUNSET - hour) / EVENING_DURATION
 }
 
-draw_time :: proc(hours: f32) {
-  hours_text := fmt.ctprintf("Hour: %d", cast(int)hours)
-  hours_position := rl.Vector2 { SCREEN_WIDTH - 65, 25}
+draw_debug :: proc(state: ^State) {
+  x:f32 = SCREEN_WIDTH - 115
+  hours_text := fmt.ctprintf("Hour: %d", cast(int)state.hours)
+  hours_position := rl.Vector2 { x, 25}
   rl.DrawTextEx(rl.GetFontDefault(), hours_text, hours_position, 14, 1, rl.WHITE)
+
+  brightness_text := fmt.ctprintf("Brightness: %v", state.brightness)
+  brightness_position := rl.Vector2 { x, 45}
+  rl.DrawTextEx(rl.GetFontDefault(), brightness_text, brightness_position, 14, 1, rl.WHITE)
+
+  speed_text := fmt.ctprintf("speed: %v", state.speed)
+  speed_position := rl.Vector2 { x, 65}
+  rl.DrawTextEx(rl.GetFontDefault(), speed_text, speed_position, 14, 1, rl.WHITE)
 }
 
-draw_brightness :: proc(brightness: f32) {
-  hours_text := fmt.ctprintf("Brightness: %v", brightness)
-  hours_position := rl.Vector2 { SCREEN_WIDTH - 115, 45}
-  rl.DrawTextEx(rl.GetFontDefault(), hours_text, hours_position, 14, 1, rl.WHITE)
-}
-
-
-BUILDING_HEIGHT :: 600
+BUILDING_HEIGHT :: 630
 BUILDING_WIDTH :: 200
 BUILDING_COLOR :: rl.Color{180, 175, 165, 255}
 
@@ -75,7 +93,7 @@ LIGHT_ON_1 :: rl.Color{240, 210, 160, 255}  // gentle warm light
 LIGHT_ON_2 :: rl.Color{255, 220, 150, 255}  // warm yellow glow
 LIGHT_ON_3 :: rl.Color{255, 200, 120, 255}  // warmer, more orange
 
-draw_building :: proc(background: rl.Color, rooms: []Room) {
+draw_building :: proc(state: ^State, background: rl.Color, rooms: []Room) {
   building_rect := rl.Rectangle {
     x = SCREEN_WIDTH / 4,
     y = SCREEN_HEIGHT - BUILDING_HEIGHT,
@@ -96,39 +114,72 @@ draw_building :: proc(background: rl.Color, rooms: []Room) {
      for row := 0; row < FLOORS; row += 1 {
       room_rect := rl.Rectangle {
         x = start_x + cast(f32)(col * (ROOM_WIDTH + ROOM_PAD)),
-        y = start_y + cast(f32)(row * (ROOM_HEIGHT + ROOM_PAD)),
+        y = start_y + cast(f32)(row * (ROOM_HEIGHT + ROOM_PAD) - ROOM_PAD),
         width = ROOM_WIDTH,
         height = ROOM_HEIGHT,
       }
 
-      index := row * ROOMS + col
-      if rooms[index].light_on {
+      room_index := row * ROOMS + col
+      if rooms[room_index].light_on {
         rl.DrawRectangleRec(room_rect, LIGHT_ON_1)
+      } else if rooms[room_index].tv_on {
+        // Quantize time into "buckets" to slow down changes
+        bucket := int(state.hours * 0.5)  // tweak multiplier for speed
+        index := (bucket + room_index * 7) % len(tv_colors)
+        color := tv_colors[index]
+        rl.DrawRectangleRec(room_rect, color)
       } else {
         rl.DrawRectangleRec(room_rect, room_color)
       }
+
      }
   }
 }
 
 draw :: proc(state: ^State, rooms: []Room) {
-    background := calculate_background(state)
-    rl.ClearBackground(background)
-    draw_time(state.hours)
-    draw_brightness(state.brightness)
-    draw_building(background, rooms)
+  background := calculate_background(state)
+  rl.ClearBackground(background)
+  if state.debug {
+    draw_debug(state)
+  }
+  draw_building(state, background, rooms)
 }
 
 update :: proc(state: ^State, rooms: []Room, dwellers: []Dweller) {
+
+  if rl.IsKeyPressed(rl.KeyboardKey.DOWN) && state.speed > 1 {
+    state.speed -= 1
+    state.time_scale = 24 * (state.speed * 60)
+
+  } else if rl.IsKeyPressed(rl.KeyboardKey.UP)  {
+    state.speed += 1
+    state.time_scale = 24 * (state.speed * 60)
+  }
+
+  if rl.IsKeyPressed(rl.KeyboardKey.D) {
+    state.debug = !state.debug
+  }
+
   sim_time_scaled := state.sim_time * state.time_scale
   state.hours = math.mod_f32((sim_time_scaled / 3600), 24.0)
   state.brightness = get_brightness(state.hours)
 
-  for dweller in dwellers {
+  for &dweller in dwellers {
+    room_index := dweller.room_number-1
     if state.brightness < dweller.darkness_threshold {
-      rooms[dweller.room_number-1].light_on = true
+      rooms[room_index].light_on = true
     } else {
-      rooms[dweller.room_number-1].light_on = false
+      rooms[room_index].light_on = false
+    }
+
+    if dweller.has_tv {
+      if dweller.tv_on_hour < dweller.tv_off_hour {
+        // Normal case: e.g., 14:00 to 18:00
+        rooms[room_index].tv_on = state.hours >= dweller.tv_on_hour && state.hours < dweller.tv_off_hour
+      } else {
+        // Wrap-around case: e.g., 22:00 to 02:00
+        rooms[room_index].tv_on = state.hours >= dweller.tv_on_hour || state.hours < dweller.tv_off_hour
+      }
     }
   }
 }
@@ -141,7 +192,8 @@ main :: proc() {
   })
 
   state: State
-  state.time_scale = 24 * 240 // 24 hours every
+  state.speed = 1
+  state.time_scale = 24 * (state.speed * 60)
 
   rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "The Building")
   defer rl.CloseWindow()
@@ -157,6 +209,7 @@ main :: proc() {
   dwellers := [?]Dweller{
     Dweller { darkness_threshold = 0.25, room_number = 1 },
     Dweller { darkness_threshold = 0.12, room_number = 15 },
+    Dweller { has_tv = true, tv_on_hour = 19.0, tv_off_hour = 3.0, room_number = 27 },
   }
 
   rl.SetTargetFPS(30)
