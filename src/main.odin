@@ -9,10 +9,6 @@ import "core:strconv"
 import "core:os"
 import rl "vendor:raylib"
 
-SCREEN_WIDTH :: 1200
-SCREEN_HEIGHT :: 800
-
-
 State :: struct {
   sim_time: f32,
   time_scale: f32,
@@ -29,11 +25,15 @@ Room :: struct {
 }
 
 Dweller :: struct {
-  darkness_threshold: f32,
   room_number: uint,
-  has_tv: bool,
 
-  //TV
+  // Thresholds
+  turn_on_threshold: f32,
+  turn_off_threshold: f32,
+  light_on_since: Maybe(f32),
+
+  // TV
+  has_tv: bool,
   tv_on_hour: f32,
   tv_off_hour: f32,
 }
@@ -44,10 +44,31 @@ tv_colors := []rl.Color{
     {200, 200, 220, 255},  // blue-white (bright scene)
 }
 
+make_dweller :: proc(room_number: uint) -> Dweller {
+    turn_on := 0.2 + rand.float32() * 0.4  // 0.2 to 0.6 darkness to turn on
+
+    // turn off when it's brighter than when they turned on
+    // add a small gap (hysteresis) so no flicker
+    turn_off := (1 - turn_on) + 0.05 + rand.float32() * 0.1
+
+    return Dweller {
+        turn_on_threshold = turn_on,
+        turn_off_threshold = turn_off,
+        light_on_since = nil,
+        room_number = room_number,
+    }
+}
+
 calculate_background :: proc(state: ^State) -> rl.Color {
     t := state.hours / 24.0
     value: f32 = 0.575 + 0.375 * math.cos((t - 0.5) * 2 * math.PI)
     return rl.ColorFromHSV(210.0, 0.3, value)
+}
+
+hours_elapsed :: proc(from, to: f32) -> f32 {
+    diff := to - from
+    if diff < 0 do diff += 24  // crossed midnight
+    return diff
 }
 
 
@@ -65,7 +86,7 @@ get_brightness :: proc(hour: f32) -> f32 {
 }
 
 draw_debug :: proc(state: ^State) {
-  x:f32 = SCREEN_WIDTH - 115
+  x:f32 = cast(f32)rl.GetScreenWidth() - 115
   hours_text := fmt.ctprintf("Hour: %d", cast(int)state.hours)
   hours_position := rl.Vector2 { x, 25}
   rl.DrawTextEx(rl.GetFontDefault(), hours_text, hours_position, 14, 1, rl.WHITE)
@@ -95,8 +116,8 @@ LIGHT_ON_3 :: rl.Color{255, 200, 120, 255}  // warmer, more orange
 
 draw_building :: proc(state: ^State, background: rl.Color, rooms: []Room) {
   building_rect := rl.Rectangle {
-    x = SCREEN_WIDTH / 4,
-    y = SCREEN_HEIGHT - BUILDING_HEIGHT,
+    x = cast(f32)rl.GetScreenWidth() / 4,
+    y = cast(f32)rl.GetScreenHeight() - BUILDING_HEIGHT,
     width = BUILDING_WIDTH,
     height = BUILDING_HEIGHT,
   }
@@ -136,12 +157,23 @@ draw_building :: proc(state: ^State, background: rl.Color, rooms: []Room) {
   }
 }
 
+draw_ground :: proc(background: rl.Color) {
+    ground_y : i32 = rl.GetScreenHeight() - 100
+    ground_color := rl.ColorBrightness(background, -0.3)
+    rl.DrawRectangle(0, ground_y, rl.GetScreenWidth(), BUILDING_HEIGHT, ground_color)
+}
+
 draw :: proc(state: ^State, rooms: []Room) {
   background := calculate_background(state)
   rl.ClearBackground(background)
+
+  ground_color := rl.ColorBrightness(background, -0.3)
+  draw_ground(ground_color)
+
   if state.debug {
     draw_debug(state)
   }
+
   draw_building(state, background, rooms)
 }
 
@@ -163,13 +195,26 @@ update :: proc(state: ^State, rooms: []Room, dwellers: []Dweller) {
   sim_time_scaled := state.sim_time * state.time_scale
   state.hours = math.mod_f32((sim_time_scaled / 3600), 24.0)
   state.brightness = get_brightness(state.hours)
+  darkness := 1.0 - state.brightness
 
   for &dweller in dwellers {
     room_index := dweller.room_number-1
-    if state.brightness < dweller.darkness_threshold {
-      rooms[room_index].light_on = true
+
+    // If the light hasn't been turned on yet, decide if we want to turn it on.
+    // Otherwise the light is already on and we need to decide if we want to turn it off.
+    if dweller.light_on_since == nil {
+      should_turn_on := darkness > dweller.turn_on_threshold
+      if  should_turn_on {
+        dweller.light_on_since = state.hours
+        rooms[room_index].light_on = true
+      }
     } else {
-      rooms[room_index].light_on = false
+      should_turn_off := state.brightness > dweller.turn_off_threshold
+      if should_turn_off {
+        dweller.light_on_since = nil
+        rooms[room_index].light_on = false
+
+      }
     }
 
     if dweller.has_tv {
@@ -189,15 +234,16 @@ main :: proc() {
 
   rl.SetConfigFlags({
     .WINDOW_HIGHDPI,
+    .WINDOW_MAXIMIZED,
+    .WINDOW_RESIZABLE,
   })
 
   state: State
   state.speed = 1
   state.time_scale = 24 * (state.speed * 60)
 
-  rl.InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "The Building")
+  rl.InitWindow(1200, 800, "The Building")
   defer rl.CloseWindow()
-
 
   // Initialize rooms
   rooms := [ROOMS * FLOORS]Room{}
@@ -205,12 +251,21 @@ main :: proc() {
     rooms[i] = Room { light_on = false}
   }
 
-  // Initialize dwellers
   dwellers := [?]Dweller{
-    Dweller { darkness_threshold = 0.25, room_number = 1 },
-    Dweller { darkness_threshold = 0.12, room_number = 15 },
-    Dweller { has_tv = true, tv_on_hour = 19.0, tv_off_hour = 3.0, room_number = 27 },
-  }
+    make_dweller(1),
+    make_dweller(15),
+
+    // TV Maniac
+    Dweller {
+      has_tv = true,
+      tv_on_hour = 19.0,
+      tv_off_hour = 3.0,
+      room_number = 27,
+
+      // Never turns on the light
+      turn_on_threshold = 1.0,
+    },
+}
 
   rl.SetTargetFPS(30)
 
@@ -219,6 +274,7 @@ main :: proc() {
     rl.BeginDrawing()
 
     update(&state, rooms[:], dwellers[:])
+
     draw(&state, rooms[:])
 
     rl.EndDrawing()
