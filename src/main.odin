@@ -177,8 +177,7 @@ draw :: proc(state: ^State, rooms: []Room) {
   draw_building(state, background, rooms)
 }
 
-update :: proc(state: ^State, rooms: []Room, dwellers: []Dweller) {
-
+process_events :: proc(state: ^State) {
   if rl.IsKeyPressed(rl.KeyboardKey.DOWN) && state.speed > 1 {
     state.speed -= 1
     state.time_scale = 24 * (state.speed * 60)
@@ -191,7 +190,10 @@ update :: proc(state: ^State, rooms: []Room, dwellers: []Dweller) {
   if rl.IsKeyPressed(rl.KeyboardKey.D) {
     state.debug = !state.debug
   }
+}
 
+update :: proc(state: ^State, rooms: []Room, dwellers: []Dweller) {
+  state.sim_time = state.sim_time + rl.GetFrameTime()
   sim_time_scaled := state.sim_time * state.time_scale
   state.hours = math.mod_f32((sim_time_scaled / 3600), 24.0)
   state.brightness = get_brightness(state.hours)
@@ -265,19 +267,16 @@ main :: proc() {
       // Never turns on the light
       turn_on_threshold = 1.0,
     },
-}
+  }
 
   rl.SetTargetFPS(30)
 
   for !rl.WindowShouldClose() {
-    state.sim_time = state.sim_time + rl.GetFrameTime()
-    rl.BeginDrawing()
-
+    process_events(&state)
     update(&state, rooms[:], dwellers[:])
 
+    rl.BeginDrawing()
     draw(&state, rooms[:])
-
     rl.EndDrawing()
   }
-
 }
