@@ -13,6 +13,7 @@ State :: struct {
   sim_time: f32,
   time_scale: f32,
   hours: f32,
+  previous_hours: f32,
   brightness: f32,
   debug: bool,
   speed: f32, //hours per second
@@ -59,10 +60,22 @@ make_dweller :: proc(room_number: uint) -> Dweller {
     }
 }
 
+make_dweller_watch_tv :: proc(dweller: ^Dweller) {
+  dweller.has_tv = true
+  dweller.tv_on_hour = rand.float32_range(17, 23)
+  dweller.tv_off_hour = rand.float32_range(1, 3)
+  dweller.turn_on_threshold = 1.0
+}
+
+stop_dweller_watch_tv :: proc(dweller: ^Dweller) {
+  dweller.has_tv = false
+  dweller.turn_on_threshold = 0
+}
+
 calculate_background :: proc(state: ^State) -> rl.Color {
-    t := state.hours / 24.0
-    value: f32 = 0.575 + 0.375 * math.cos((t - 0.5) * 2 * math.PI)
-    return rl.ColorFromHSV(210.0, 0.3, value)
+  t := state.hours / 24.0
+  value: f32 = 0.575 + 0.375 * math.cos((t - 0.5) * 2 * math.PI)
+  return rl.ColorFromHSV(210.0, 0.3, value)
 }
 
 hours_elapsed :: proc(from, to: f32) -> f32 {
@@ -194,12 +207,24 @@ process_events :: proc(state: ^State) {
 
 update :: proc(state: ^State, rooms: []Room, dwellers: []Dweller) {
   state.sim_time = (state.sim_time + rl.GetFrameTime() * state.time_scale)
+  state.previous_hours = state.hours
   state.hours = math.mod((state.sim_time/ 3600), 24.0)
   state.brightness = get_brightness(state.hours)
   darkness := 1.0 - state.brightness
 
+  crossed_noon := state.previous_hours < 12.0 && state.hours >= 12.0 && state.hours < 12.1
+
   for &dweller in dwellers {
     room_index := dweller.room_number-1
+
+    if crossed_noon {
+      random_bool := rand.int31() % 2 == 0
+      if !dweller.has_tv && random_bool {
+        make_dweller_watch_tv(&dweller)
+      } else if dweller.has_tv && random_bool {
+        stop_dweller_watch_tv(&dweller)
+      }
+    }
 
     // If the light hasn't been turned on yet, decide if we want to turn it on.
     // Otherwise the light is already on and we need to decide if we want to turn it off.
