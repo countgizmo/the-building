@@ -21,7 +21,6 @@ State :: struct {
 Room :: struct {
   light_on: bool,
   tv_on: bool,
-
 }
 
 Dweller :: struct {
@@ -30,7 +29,6 @@ Dweller :: struct {
   // Thresholds
   turn_on_threshold: f32,
   turn_off_threshold: f32,
-  light_on_since: Maybe(f32),
 
   // TV
   has_tv: bool,
@@ -57,7 +55,6 @@ make_dweller :: proc(room_number: uint) -> Dweller {
     return Dweller {
         turn_on_threshold = turn_on,
         turn_off_threshold = turn_off,
-        light_on_since = nil,
         room_number = room_number,
     }
 }
@@ -206,18 +203,15 @@ update :: proc(state: ^State, rooms: []Room, dwellers: []Dweller) {
 
     // If the light hasn't been turned on yet, decide if we want to turn it on.
     // Otherwise the light is already on and we need to decide if we want to turn it off.
-    if dweller.light_on_since == nil {
+    if !rooms[room_index].light_on  {
       should_turn_on := darkness > dweller.turn_on_threshold
-      if  should_turn_on {
-        dweller.light_on_since = state.hours
+      if should_turn_on {
         rooms[room_index].light_on = true
       }
     } else {
       should_turn_off := state.brightness > dweller.turn_off_threshold
       if should_turn_off {
-        dweller.light_on_since = nil
         rooms[room_index].light_on = false
-
       }
     }
 
