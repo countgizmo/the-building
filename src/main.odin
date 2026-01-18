@@ -42,6 +42,9 @@ tv_colors := []rl.Color{
     {120, 140, 200, 255},  // cool blue (night scene)
     {150, 170, 220, 255},  // lighter blue
     {200, 200, 220, 255},  // blue-white (bright scene)
+    {180, 150, 200, 255},  // purple tint (dramatic scene)
+    {140, 160, 180, 255},  // muted blue-gray
+    {160, 140, 160, 255},  // dim purple
 }
 
 make_dweller :: proc(room_number: uint) -> Dweller {
@@ -145,7 +148,7 @@ draw_building :: proc(state: ^State, background: rl.Color, rooms: []Room) {
         rl.DrawRectangleRec(room_rect, LIGHT_ON_1)
       } else if rooms[room_index].tv_on {
         // Quantize time into "buckets" to slow down changes
-        bucket := int(state.hours * 0.5)  // tweak multiplier for speed
+        bucket := int(state.hours * 0.7)  // tweak multiplier for speed
         index := (bucket + room_index * 7) % len(tv_colors)
         color := tv_colors[index]
         rl.DrawRectangleRec(room_rect, color)
@@ -195,7 +198,7 @@ process_events :: proc(state: ^State) {
 update :: proc(state: ^State, rooms: []Room, dwellers: []Dweller) {
   state.sim_time = state.sim_time + rl.GetFrameTime()
   sim_time_scaled := state.sim_time * state.time_scale
-  state.hours = math.mod_f32((sim_time_scaled / 3600), 24.0)
+  state.hours = math.mod((sim_time_scaled / 3600), 24.0)
   state.brightness = get_brightness(state.hours)
   darkness := 1.0 - state.brightness
 
