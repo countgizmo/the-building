@@ -196,9 +196,8 @@ process_events :: proc(state: ^State) {
 }
 
 update :: proc(state: ^State, rooms: []Room, dwellers: []Dweller) {
-  state.sim_time = state.sim_time + rl.GetFrameTime()
-  sim_time_scaled := state.sim_time * state.time_scale
-  state.hours = math.mod((sim_time_scaled / 3600), 24.0)
+  state.sim_time = (state.sim_time + rl.GetFrameTime() * state.time_scale)
+  state.hours = math.mod((state.sim_time/ 3600), 24.0)
   state.brightness = get_brightness(state.hours)
   darkness := 1.0 - state.brightness
 
@@ -259,6 +258,12 @@ main :: proc() {
   dwellers := [?]Dweller{
     make_dweller(1),
     make_dweller(15),
+    make_dweller(8),
+    make_dweller(22),
+    make_dweller(35),
+    make_dweller(41),
+    make_dweller(53),
+    make_dweller(67),
 
     // TV Maniac
     Dweller {
